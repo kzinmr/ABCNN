@@ -2,21 +2,56 @@ import tensorflow as tf
 import sys
 import numpy as np
 
-from preprocess import Word2Vec, MSRP, WikiQA
+from preprocess import Word2Vec, MSRP, WikiQA, AIM
 from ABCNN import ABCNN
 from utils import build_path
 from sklearn.externals import joblib
 
 
-def test(w, l2_reg, epoch, max_len, model_type, num_layers, data_type, classifier, word2vec, num_classes=2):
+def evaluate_map_mrr(QA_pairs):
+    MAP, MRR = 0, 0
+    for i2,s1 in enumerate(QA_pairs.keys()):
+        p, AP = 0, 0
+        MRR_check = False
+
+        QA_pairs[s1] = sorted(QA_pairs[s1], key=lambda x: x[-1], reverse=True)
+
+        for idx, (s2, label, prob) in enumerate(QA_pairs[s1]):
+            if label == 1:
+                if not MRR_check:  # only count for max score
+                    MRR += 1 / (idx + 1)
+                    MRR_check = True
+
+                p += 1
+                AP += p / (idx + 1)
+        if not p:
+            print("No label=1 around {}, {}, {}".format(idx, AP, MAP))
+        AP /= p
+        MAP += AP
+
+    num_questions = len(QA_pairs.keys())
+    MAP /= num_questions
+    MRR /= num_questions
+
+    print("MAP:", MAP, "/ MRR:", MRR)
+    return MAP, MRR
+
+
+def test(w, l2_reg, epoch, max_len, model_type, num_layers, data_type, classifier, word2vec, d0=300, num_classes=2, tenant=None):
     if data_type == "WikiQA":
         test_data = WikiQA(word2vec=word2vec, max_len=max_len)
-    else:
+    elif data_type == "MSRP":
         test_data = MSRP(word2vec=word2vec, max_len=max_len)
+    elif data_type == "AIM":
+        test_data = AIM(word2vec=word2vec, max_len=max_len)
 
-    test_data.open_file(mode="test")
+    if data_type == "AIM" and tenant is not None:
+        test_data.open_file_tenant(tenant)
+    else:
+        test_data.open_file(mode="test")
 
-    model = ABCNN(s=max_len, w=w, l2_reg=l2_reg, model_type=model_type,
+    model = ABCNN(s=max_len, w=w, l2_reg=l2_reg, d0=d0,
+                  model_type=model_type,
                   num_features=test_data.num_features, num_classes=num_classes, num_layers=num_layers)
 
     model_path = build_path("./models/", data_type, model_type, num_layers)
@@ -47,11 +82,12 @@ def test(w, l2_reg, epoch, max_len, model_type, num_layers, data_type, classifie
             s1s, s2s, labels, features = test_data.next_batch(batch_size=test_data.data_size)
 
             for i in range(test_data.data_size):
+                fd = {model.x1: np.expand_dims(s1s[i], axis=0),
+                      model.x2: np.expand_dims(s2s[i], axis=0),
+                      model.y: np.expand_dims(labels[i], axis=0),
+                      model.features: np.expand_dims(features[i], axis=0)}
                 pred, clf_input = sess.run([model.prediction, model.output_features],
-                                           feed_dict={model.x1: np.expand_dims(s1s[i], axis=0),
-                                                      model.x2: np.expand_dims(s2s[i], axis=0),
-                                                      model.y: np.expand_dims(labels[i], axis=0),
-                                                      model.features: np.expand_dims(features[i], axis=0)})
+                                           feed_dict=fd)
 
                 if classifier == "LR":
                     clf_pred = clf.predict_proba(clf_input)[:, 1]
@@ -69,32 +105,9 @@ def test(w, l2_reg, epoch, max_len, model_type, num_layers, data_type, classifie
                     QA_pairs[s1] = [(s2, labels[i], np.asscalar(pred))]
 
             # Calculate MAP and MRR for comparing performance
-            MAP, MRR = 0, 0
-            for s1 in QA_pairs.keys():
-                p, AP = 0, 0
-                MRR_check = False
-
-                QA_pairs[s1] = sorted(QA_pairs[s1], key=lambda x: x[-1], reverse=True)
-
-                for idx, (s2, label, prob) in enumerate(QA_pairs[s1]):
-                    if label == 1:
-                        if not MRR_check:
-                            MRR += 1 / (idx + 1)
-                            MRR_check = True
-
-                        p += 1
-                        AP += p / (idx + 1)
-
-                AP /= p
-                MAP += AP
-
-            num_questions = len(QA_pairs.keys())
-            MAP /= num_questions
-            MRR /= num_questions
-
+            MAP, MRR = evaluate_map_mrr(QA_pairs)
             MAPs.append(MAP)
             MRRs.append(MRR)
-
             print("[Epoch " + str(e) + "] MAP:", MAP, "/ MRR:", MRR)
 
     print("=" * 50)
@@ -130,7 +143,9 @@ if __name__ == "__main__":
         "num_layers": 2,
         "data_type": "WikiQA",
         "classifier": "LR",
-        "word2vec": Word2Vec()
+        "word2vec": Word2Vec(),
+        "d0": 250,
+        "tenant": None
     }
 
     if len(sys.argv) > 1:
@@ -140,6 +155,8 @@ if __name__ == "__main__":
             params[k] = v
 
     test(w=int(params["ws"]), l2_reg=float(params["l2_reg"]), epoch=int(params["epoch"]),
+         d0=int(params["d0"]),
          max_len=int(params["max_len"]), model_type=params["model_type"],
          num_layers=int(params["num_layers"]), data_type=params["data_type"],
-         classifier=params["classifier"], word2vec=params["word2vec"])
+         classifier=params["classifier"], word2vec=params["word2vec"],
+         tenant=params["tenant"])

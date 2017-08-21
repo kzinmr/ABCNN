@@ -196,11 +196,13 @@ class ABCNN():
             )
 
         self.prediction = tf.contrib.layers.softmax(self.estimation)[:, 1]
-
-        self.cost = tf.add(
-            tf.reduce_mean(tf.nn.sparse_softmax_cross_entropy_with_logits(logits=self.estimation, labels=self.y)),
-            tf.reduce_sum(tf.get_collection(tf.GraphKeys.REGULARIZATION_LOSSES)),
-            name="cost")
+        with tf.control_dependencies([tf.assert_less(self.y, num_classes)]):
+            # tf.assert_none_equal(tf.reduce_sum(self.y), 0)
+            tf.Print(self.y, [self.y], message="y is : ")
+            self.cost = tf.add(
+                tf.reduce_mean(tf.nn.sparse_softmax_cross_entropy_with_logits(logits=self.estimation, labels=self.y)),
+                tf.reduce_sum(tf.get_collection(tf.GraphKeys.REGULARIZATION_LOSSES)),
+                name="cost")
 
         tf.summary.scalar("cost", self.cost)
         self.merged = tf.summary.merge_all()

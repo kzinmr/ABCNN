@@ -2,18 +2,23 @@ import tensorflow as tf
 import numpy as np
 import sys
 
-from preprocess import Word2Vec, MSRP, WikiQA
+from preprocess import Word2Vec, MSRP, WikiQA, AIM
 from ABCNN import ABCNN
 from utils import build_path
 from sklearn import linear_model, svm
 from sklearn.externals import joblib
 
 
-def train(lr, w, l2_reg, epoch, batch_size, model_type, num_layers, data_type, word2vec, num_classes=2):
+def train(lr, w, l2_reg, epoch, batch_size, model_type, num_layers, data_type, word2vec, d0=300, num_classes=2):
     if data_type == "WikiQA":
         train_data = WikiQA(word2vec=word2vec)
-    else:
+    elif data_type == "MSRP":
         train_data = MSRP(word2vec=word2vec)
+    elif data_type == "AIM":
+        train_data = AIM(word2vec=word2vec)
+    else:
+        print("invalid data_type:{}".format(data_type))
+        sys.exit(1)
 
     train_data.open_file(mode="train")
 
@@ -22,7 +27,8 @@ def train(lr, w, l2_reg, epoch, batch_size, model_type, num_layers, data_type, w
     print("training max len:", train_data.max_len)
     print("=" * 50)
 
-    model = ABCNN(s=train_data.max_len, w=w, l2_reg=l2_reg, model_type=model_type,
+    model = ABCNN(s=train_data.max_len, w=w, l2_reg=l2_reg, d0=d0,
+                  model_type=model_type,
                   num_features=train_data.num_features, num_classes=num_classes, num_layers=num_layers)
 
     optimizer = tf.train.AdagradOptimizer(lr, name="optimizer").minimize(model.cost)
@@ -38,7 +44,7 @@ def train(lr, w, l2_reg, epoch, batch_size, model_type, num_layers, data_type, w
 
     #with tf.Session(config=tf.ConfigProto(gpu_options=gpu_options)) as sess:
     with tf.Session() as sess:
-        #train_summary_writer = tf.summary.FileWriter("C:/tf_logs/train", sess.graph)
+        train_summary_writer = tf.summary.FileWriter("tf_logs/train", sess.graph)
 
         sess.run(init)
 
@@ -68,12 +74,16 @@ def train(lr, w, l2_reg, epoch, batch_size, model_type, num_layers, data_type, w
 
                 if i % 100 == 0:
                     print("[batch " + str(i) + "] cost:", c)
-                #train_summary_writer.add_summary(merged, i)
+                # print(features.shape)
+                # print(features[:,-2:])
+                # print(features)
+                train_summary_writer.add_summary(merged, i)
 
             save_path = saver.save(sess, build_path("./models/", data_type, model_type, num_layers), global_step=e)
             print("model saved as", save_path)
 
             clf_features = np.concatenate(clf_features)
+            print(clf_features[:,-2:])
             LR.fit(clf_features, train_data.labels)
             SVM.fit(clf_features, train_data.labels)
 
@@ -111,20 +121,22 @@ if __name__ == "__main__":
         "model_type": "BCNN",
         "num_layers": 2,
         "data_type": "WikiQA",
-        "word2vec": Word2Vec()
+        "word2vec": Word2Vec(),
+        "d0": 250
     }
 
-    print("=" * 50)
-    print("Parameters:")
-    for k in sorted(params.keys()):
-        print(k, ":", params[k])
 
     if len(sys.argv) > 1:
         for arg in sys.argv[1:]:
             k = arg.split("=")[0][2:]
             v = arg.split("=")[1]
             params[k] = v
+    print("=" * 50)
+    print("Parameters:")
+    for k in sorted(params.keys()):
+        print(k, ":", params[k])
 
     train(lr=float(params["lr"]), w=int(params["ws"]), l2_reg=float(params["l2_reg"]), epoch=int(params["epoch"]),
+          d0=int(params["d0"]),
           batch_size=int(params["batch_size"]), model_type=params["model_type"], num_layers=int(params["num_layers"]),
           data_type=params["data_type"], word2vec=params["word2vec"])

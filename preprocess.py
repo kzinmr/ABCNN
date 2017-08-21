@@ -1,14 +1,17 @@
 import numpy as np
 import nltk
 import gensim
+import json
 
 
 class Word2Vec():
     def __init__(self):
         # Load Google's pre-trained Word2Vec model.
-        self.model = gensim.models.KeyedVectors.load_word2vec_format('./GoogleNews-vectors-negative300.bin',
-                                                                     binary=True)
-        self.unknowns = np.random.uniform(-0.01, 0.01, 300).astype("float32")
+        embedding = 'embedding_models/word2vec.bin' # 'embedding_models/GoogleNews-vectors-negative300.bin'
+        embedding_d = 250
+        self.model =gensim.models.KeyedVectors.load_word2vec_format(embedding, binary=True)
+        # gensim.models.Word2Vec.load_word2vec_format(embedding, binary=True)
+        self.unknowns = np.random.uniform(-0.01, 0.01, embedding_d).astype("float32")
 
     def get(self, word):
         if word not in self.model.vocab:
@@ -71,7 +74,7 @@ class Data():
 
 class MSRP(Data):
     def open_file(self, mode, parsing_method="normal"):
-        with open("./MSRP_Corpus/msr_paraphrase_" + mode + ".txt", "r", encoding="utf-8") as f:
+        with open("./data/MSRP_Corpus/msr_paraphrase_" + mode + ".txt", "r", encoding="utf-8") as f:
             f.readline()
 
             for line in f:
@@ -111,7 +114,7 @@ class MSRP(Data):
 
 class WikiQA(Data):
     def open_file(self, mode):
-        with open("./WikiQA_Corpus/WikiQA-" + mode + ".txt", "r", encoding="utf-8") as f:
+        with open("./data/WikiQA_Corpus/WikiQA-" + mode + ".txt", "r", encoding="utf-8") as f:
             stopwords = nltk.corpus.stopwords.words("english")
 
             for line in f:
@@ -142,6 +145,90 @@ class WikiQA(Data):
 
         for i in range(self.data_size):
             wgt_word_cnt = sum([idf[word] for word in self.s1s[i] if (word not in stopwords) and (word in self.s2s[i])])
+            self.features[i].append(wgt_word_cnt)
+
+        self.num_features = len(self.features[0])
+
+class AIM(Data):
+
+    def load_json(self, json_path, positive_only=False):
+        json_tuples = []
+        with open(json_path) as fp:
+            for l in fp:
+                jd = json.loads(l.strip())
+                q = jd['question']
+                for jdd in jd['candidates']:
+                    tpl = (q, jdd['candidate'], jdd['label'])
+                    json_tuples.append(tpl)
+        return json_tuples
+
+    def open_file_tenant(self, tenant):
+        pth = "./data/AIM_Corpus/cands_eval_separate_wakati_all_" + tenant + ".json"
+        qcl_tuples = self.load_json(pth)
+        for q, c, l in qcl_tuples:
+            s1 = q.lower().split()[:40]
+            # truncate answers to 40 tokens.
+            s2 = c.lower().split()[:40]
+            label = int(l)
+
+            self.s1s.append(s1)
+            self.s2s.append(s2)
+            self.labels.append(label)
+            word_cnt = len([word for word in s1 if (word in s2)])
+            self.features.append([len(s1), len(s2), word_cnt])
+
+            local_max_len = max(len(s1), len(s2))
+            if local_max_len > self.max_len:
+                self.max_len = local_max_len
+
+        self.data_size = len(self.s1s)
+
+        flatten = lambda l: [item for sublist in l for item in sublist]
+        q_vocab = list(set(flatten(self.s1s)))
+        idf = {}
+        for w in q_vocab:
+            idf[w] = np.log(self.data_size / len([1 for s1 in self.s1s if w in s1]))
+
+        for i in range(self.data_size):
+            wgt_word_cnt = sum([idf[word] for word in self.s1s[i] if (word in self.s2s[i])])
+            self.features[i].append(wgt_word_cnt)
+
+        self.num_features = len(self.features[0])
+
+
+    def open_file(self, mode):
+        pth = "./data/AIM_Corpus/aim-" + mode + ".tsv"
+        with open(pth, "r", encoding="utf-8") as f:
+            # stopwords = nltk.corpus.stopwords.words("english")
+
+            for line in f:
+                items = line[:-1].split("\t")
+
+                s1 = items[0].lower().split()[:40]
+                # truncate answers to 40 tokens.
+                s2 = items[1].lower().split()[:40]
+                label = int(items[2])
+
+                self.s1s.append(s1)
+                self.s2s.append(s2)
+                self.labels.append(label)
+                word_cnt = len([word for word in s1 if (word in s2)])
+                self.features.append([len(s1), len(s2), word_cnt])
+
+                local_max_len = max(len(s1), len(s2))
+                if local_max_len > self.max_len:
+                    self.max_len = local_max_len
+
+        self.data_size = len(self.s1s)
+
+        flatten = lambda l: [item for sublist in l for item in sublist]
+        q_vocab = list(set(flatten(self.s1s)))
+        idf = {}
+        for w in q_vocab:
+            idf[w] = np.log(self.data_size / len([1 for s1 in self.s1s if w in s1]))
+
+        for i in range(self.data_size):
+            wgt_word_cnt = sum([idf[word] for word in self.s1s[i] if (word in self.s2s[i])])
             self.features[i].append(wgt_word_cnt)
 
         self.num_features = len(self.features[0])
