@@ -29,7 +29,9 @@ def train(lr, w, l2_reg, epoch, batch_size, model_type, num_layers, data_type, w
 
     model = ABCNN(s=train_data.max_len, w=w, l2_reg=l2_reg, d0=d0,
                   model_type=model_type,
-                  num_features=train_data.num_features, num_classes=num_classes, num_layers=num_layers)
+                  num_features=train_data.num_features,
+                  num_classes=num_classes,
+                  num_layers=num_layers)
 
     optimizer = tf.train.AdagradOptimizer(lr, name="optimizer").minimize(model.cost)
 
