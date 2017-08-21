@@ -150,85 +150,36 @@ class WikiQA(Data):
         self.num_features = len(self.features[0])
 
 class AIM(Data):
+    def open_file(self, mode, max_context_len=160, max_utterance_len=80):
+        # pth = "./data/AIM_Corpus/aim-" + mode + ".tsv"
+        pth = "./data/AIM_Corpus/" + mode + ".csv"
+        df = pd.read_csv(str(csvpath), encoding='utf8')
+        df1 = df['Answer'].map(lambda x: x.lower().split()[:max_context_len])
+        self.s1s = df1.values.tolist()
+        df2 = df['Question'].map(lambda x: x.lower().split()[:max_utterance_len])
+        self.s2s = df2.values.tolist()
+        dfl = df['Label'].map(int)
+        self.labels = dfl.values.tolist()
 
-    def load_json(self, json_path, positive_only=False):
-        json_tuples = []
-        with open(json_path) as fp:
-            for l in fp:
-                jd = json.loads(l.strip())
-                q = jd['question']
-                for jdd in jd['candidates']:
-                    tpl = (q, jdd['candidate'], jdd['label'])
-                    json_tuples.append(tpl)
-        return json_tuples
-
-    def open_file_tenant(self, tenant):
-        pth = "./data/AIM_Corpus/cands_eval_separate_wakati_all_" + tenant + ".json"
-        qcl_tuples = self.load_json(pth)
-        for q, c, l in qcl_tuples:
-            s1 = q.lower().split()[:40]
-            # truncate answers to 40 tokens.
-            s2 = c.lower().split()[:40]
-            label = int(l)
-
-            self.s1s.append(s1)
-            self.s2s.append(s2)
-            self.labels.append(label)
-            word_cnt = len([word for word in s1 if (word in s2)])
-            self.features.append([len(s1), len(s2), word_cnt])
-
-            local_max_len = max(len(s1), len(s2))
-            if local_max_len > self.max_len:
-                self.max_len = local_max_len
-
+        # features: [len(s1), len(s2), len(s1^s2), sum(idf[s1^s2])]
+        # count features
+        self.features = [[len(s1), len(s2),
+                          len([word for word in s1 if (word in s2)])]
+                         for s1, s2 in zip(df1.values, df2.values)]
+        self.max_len = max([max(len(s1), len(s2))
+                            for s1, s2 in zip(df1.values, df2.values)])
         self.data_size = len(self.s1s)
-
+        # idf sum
+        # [[w]] -flatMap-> set(w)
         flatten = lambda l: [item for sublist in l for item in sublist]
         q_vocab = list(set(flatten(self.s1s)))
         idf = {}
         for w in q_vocab:
-            idf[w] = np.log(self.data_size / len([1 for s1 in self.s1s if w in s1]))
-
+            df = len([1 for s1 in self.s1s if w in s1])
+            idf[w] = np.log(self.data_size / df)
         for i in range(self.data_size):
-            wgt_word_cnt = sum([idf[word] for word in self.s1s[i] if (word in self.s2s[i])])
-            self.features[i].append(wgt_word_cnt)
-
-        self.num_features = len(self.features[0])
-
-
-    def open_file(self, mode):
-        pth = "./data/AIM_Corpus/aim-" + mode + ".tsv"
-        with open(pth, "r", encoding="utf-8") as f:
-            # stopwords = nltk.corpus.stopwords.words("english")
-
-            for line in f:
-                items = line[:-1].split("\t")
-
-                s1 = items[0].lower().split()[:40]
-                # truncate answers to 40 tokens.
-                s2 = items[1].lower().split()[:40]
-                label = int(items[2])
-
-                self.s1s.append(s1)
-                self.s2s.append(s2)
-                self.labels.append(label)
-                word_cnt = len([word for word in s1 if (word in s2)])
-                self.features.append([len(s1), len(s2), word_cnt])
-
-                local_max_len = max(len(s1), len(s2))
-                if local_max_len > self.max_len:
-                    self.max_len = local_max_len
-
-        self.data_size = len(self.s1s)
-
-        flatten = lambda l: [item for sublist in l for item in sublist]
-        q_vocab = list(set(flatten(self.s1s)))
-        idf = {}
-        for w in q_vocab:
-            idf[w] = np.log(self.data_size / len([1 for s1 in self.s1s if w in s1]))
-
-        for i in range(self.data_size):
-            wgt_word_cnt = sum([idf[word] for word in self.s1s[i] if (word in self.s2s[i])])
+            wgt_word_cnt = sum([idf[word] for word in self.s1s[i]
+                                if (word in self.s2s[i])])
             self.features[i].append(wgt_word_cnt)
 
         self.num_features = len(self.features[0])
