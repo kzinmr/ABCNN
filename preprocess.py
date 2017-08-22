@@ -154,7 +154,7 @@ class AIM(Data):
     def open_file(self, mode, max_context_len=160, max_utterance_len=80):
         # pth = "./data/AIM_Corpus/aim-" + mode + ".tsv"
         pth = "./data/AIM_Corpus/" + mode + ".csv"
-        df = pd.read_csv(str(csvpath), encoding='utf8')
+        df = pd.read_csv(str(pth), encoding='utf8')
         df1 = df['Answer'].map(lambda x: x.lower().split()[:max_context_len])
         self.s1s = df1.values.tolist()
         df2 = df['Question'].map(lambda x: x.lower().split()[:max_utterance_len])
